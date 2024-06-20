@@ -11,10 +11,10 @@
 #include <mutex>
 
 const int PORT = 8080;
-const std::size_t NUMBER_OF_THREADS = 10;
+const std::size_t NUMBER_OF_THREADS = 5;
 const std::size_t READ_BUFFER_SIZE = 1024;
 
-template <typename F>
+template<typename F>
 void lock(F f) {
     static std::mutex call_lock;
 
@@ -75,10 +75,45 @@ public:
                                                                                                     parameters)) {}
 };
 
-void handle_connection(const ThreadParameters &parameters, const int client);
+void handle_connection(const ThreadParameters &parameters, const int client) {
+    char buffer[READ_BUFFER_SIZE];
+    bool done = false;
+    while (!done) {
+        const ssize_t size = recv(client, buffer, READ_BUFFER_SIZE - 1, 0);
+        if (0 < size) {
+            buffer[size] = '\0';
+            lock([&] {
+                std::cout << "Received data on the worker #" << parameters.thread_number << ": " << buffer << std::endl;
+            });
+            std::stringstream ss;
+            ss << "Reply from the worker #" << parameters.thread_number << ": " << buffer << std::endl;
+            const auto &message = ss.str();
+            const auto send_result = send(client, message.c_str(), message.size(), 0);
+            if (-1 == send_result) {
+                perror("send");
+            }
+        } else {
+            if (0 == size) {
+                lock([&] {
+                    std::cout << "The client has closed connection on the worker #" << parameters.thread_number
+                              << std::endl;
+                });
+            } else {
+                perror("recv");
+                lock([&] {
+                    std::cout << "Error happened on the worker #" << parameters.thread_number << ", closing the socket"
+                              << std::endl;
+                });
+            }
+            close(client);
+            done = true;
+        }
+    }
+}
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "ConstantFunctionResult"
+
 void *worker(void *parameters_ptr) {
     const ThreadParameters &parameters = *(ThreadParameters *) parameters_ptr;
     lock([&] { std::cout << "Worker #" << parameters.thread_number << " has started." << std::endl; });
@@ -92,42 +127,15 @@ void *worker(void *parameters_ptr) {
             return nullptr;
         }
 
-        lock ([&] { std::cout << "Worker #" << parameters.thread_number << " accepted connection" << std::endl; });
+        lock([&] { std::cout << "Worker #" << parameters.thread_number << " accepted connection" << std::endl; });
 
         handle_connection(parameters, client);
     }
 
     return nullptr;
 }
-#pragma clang diagnostic pop
 
-void handle_connection(const ThreadParameters &parameters, const int client) {
-    char buffer[READ_BUFFER_SIZE];
-    bool done = false;
-    while (!done) {
-        const ssize_t size = recv(client, buffer, READ_BUFFER_SIZE - 1, 0);
-        if (0 < size) {
-            buffer[size] = '\0';
-            lock([&] { std::cout << "Received data on the worker #" << parameters.thread_number << ": " << buffer << std::endl; });
-            std::stringstream ss;
-            ss << "Reply from the worker #" << parameters.thread_number << ": " << buffer << std::endl;
-            const auto& message = ss.str();
-            const auto send_result = send(client, message.c_str(), message.size(), 0);
-            if (-1 == send_result) {
-                perror("send");
-            }
-        } else {
-            if (0 == size) {
-                lock([&] { std::cout << "The client has closed connection on the worker #" << parameters.thread_number << std::endl; });
-            } else {
-                perror("recv");
-                lock([&] { std::cout << "Error happened on the worker #" << parameters.thread_number << ", closing the socket" << std::endl; });
-            }
-            close(client);
-            done = true;
-        }
-    }
-}
+#pragma clang diagnostic pop
 
 void join_threads(const std::vector<ThreadDescriptor> &threads) {
     for (const auto &thread: threads) {
@@ -157,7 +165,7 @@ void start_threads(const int &server_socket, std::vector<ThreadDescriptor> &thre
     }
 }
 
-int main(int argc, char *args[]) {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char *args[]) {
     std::cout << "The server has started..." << std::endl;
 
     const int server_socket = create_server();
