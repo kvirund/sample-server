@@ -1,5 +1,7 @@
 # Overview
 
+![build](https://github.com/kvirund/server/actions/workflows/main.yml/badge.svg)
+
 This repository contains a couple of simple socket-based echo server implementations.
 
 * `multi-accept.cpp`: implementation with thread pool where each thread accepts client connections on its own;
