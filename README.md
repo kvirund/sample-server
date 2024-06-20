@@ -1,6 +1,6 @@
 # Overview
 
-[![build](https://github.com/kvirund/sample-server/actions/workflows/cmake-multi-platform.yml/badge.svg)](https://github.com/kvirund/sample-server/actions/workflows/cmake-multi-platform.yml)
+[![CMake on multiple platforms](https://github.com/kvirund/sample-server/actions/workflows/cmake-multi-platform.yml/badge.svg?branch=main)](https://github.com/kvirund/sample-server/actions/workflows/cmake-multi-platform.yml)
 
 This repository contains a couple of simple socket-based echo server implementations.
 
