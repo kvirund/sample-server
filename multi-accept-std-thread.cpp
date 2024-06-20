@@ -1,14 +1,13 @@
-#include <pthread.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
 #include <iostream>
-#include <utility>
 #include <vector>
 #include <memory>
 #include <sstream>
 #include <mutex>
+#include <thread>
 
 const int PORT = 8080;
 const std::size_t NUMBER_OF_THREADS = 5;
@@ -53,28 +52,7 @@ int create_server() {
     return server_socket;
 }
 
-class ThreadParameters {
-public:
-    using shared_ptr = std::shared_ptr<ThreadParameters>;
-
-    const int server_socket;
-    const std::size_t thread_number;
-
-    ThreadParameters(int server_socket, std::size_t thread_number) : server_socket(server_socket),
-                                                                     thread_number(thread_number) {}
-};
-
-class ThreadDescriptor {
-public:
-    const pthread_t &thread_id;
-    const ThreadParameters::shared_ptr parameters;
-
-    ThreadDescriptor(const pthread_t &thread_id, ThreadParameters::shared_ptr parameters) : thread_id(thread_id),
-                                                                                            parameters(std::move(
-                                                                                                    parameters)) {}
-};
-
-void handle_connection(const ThreadParameters &parameters, const int client) {
+void handle_connection(const int thread_number, const int client) {
     char buffer[READ_BUFFER_SIZE];
     bool done = false;
     while (!done) {
@@ -82,10 +60,10 @@ void handle_connection(const ThreadParameters &parameters, const int client) {
         if (0 < size) {
             buffer[size] = '\0';
             lock([&] {
-                std::cout << "Received data on the worker #" << parameters.thread_number << ": " << buffer << std::endl;
+                std::cout << "Received data on the worker #" << thread_number << ": " << buffer << std::endl;
             });
             std::stringstream ss;
-            ss << "Reply from the worker #" << parameters.thread_number << ": " << buffer << std::endl;
+            ss << "Reply from the worker #" << thread_number << ": " << buffer << std::endl;
             const auto &message = ss.str();
             const auto send_result = send(client, message.c_str(), message.size(), 0);
             if (-1 == send_result) {
@@ -94,13 +72,13 @@ void handle_connection(const ThreadParameters &parameters, const int client) {
         } else {
             if (0 == size) {
                 lock([&] {
-                    std::cout << "The client has closed connection on the worker #" << parameters.thread_number
+                    std::cout << "The client has closed connection on the worker #" << thread_number
                               << std::endl;
                 });
             } else {
                 perror("recv");
                 lock([&] {
-                    std::cout << "Error happened on the worker #" << parameters.thread_number << ", closing the socket"
+                    std::cout << "Error happened on the worker #" << thread_number << ", closing the socket"
                               << std::endl;
                 });
             }
@@ -113,11 +91,9 @@ void handle_connection(const ThreadParameters &parameters, const int client) {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "ConstantFunctionResult"
 
-void *worker(void *parameters_ptr) {
-    const ThreadParameters &parameters = *(ThreadParameters *) parameters_ptr;
-    lock([&] { std::cout << "Worker #" << parameters.thread_number << " has started." << std::endl; });
+void *worker(int server_socket, int thread_number) {
+    lock([&] { std::cout << "Worker #" << thread_number << " has started." << std::endl; });
 
-    const int &server_socket = parameters.server_socket;
     struct sockaddr_in client_address{0};
     socklen_t address_length = 0;
     while (const auto client = accept(server_socket, (struct sockaddr *) &client_address, &address_length)) {
@@ -126,9 +102,9 @@ void *worker(void *parameters_ptr) {
             return nullptr;
         }
 
-        lock([&] { std::cout << "Worker #" << parameters.thread_number << " accepted connection" << std::endl; });
+        lock([&] { std::cout << "Worker #" << thread_number << " accepted connection" << std::endl; });
 
-        handle_connection(parameters, client);
+        handle_connection(thread_number, client);
     }
 
     return nullptr;
@@ -136,31 +112,16 @@ void *worker(void *parameters_ptr) {
 
 #pragma clang diagnostic pop
 
-void join_threads(const std::vector<ThreadDescriptor> &threads) {
-    for (const auto &thread: threads) {
-        void *result = nullptr;
-        int join_result = pthread_join(thread.thread_id, &result);
-        if (0 != join_result) {
-            perror("pthread_join");
-            exit(EXIT_FAILURE);
-        }
+void join_threads(std::vector<std::thread> &threads) {
+    for (auto &thread: threads) {
+        thread.join();
     }
 }
 
-void start_threads(const int &server_socket, std::vector<ThreadDescriptor> &threads, std::size_t number_of_threads) {
+void start_threads(const int &server_socket, std::vector<std::thread> &threads, std::size_t number_of_threads) {
     threads.reserve(number_of_threads);
     for (std::size_t thread_number = 0; thread_number != number_of_threads; ++thread_number) {
-        const ThreadParameters::shared_ptr parameters = std::make_shared<ThreadParameters>(server_socket,
-                                                                                           thread_number);
-
-        pthread_t thread_id = 0;
-        const auto result = pthread_create(&thread_id, nullptr, worker, parameters.get());
-        if (0 != result) {
-            perror("pthread_create");
-            exit(EXIT_FAILURE);
-        }
-
-        threads.emplace_back(thread_id, parameters);
+        threads.emplace_back(worker, server_socket, thread_number);
     }
 }
 
@@ -169,7 +130,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char *args[]) {
 
     const int server_socket = create_server();
 
-    std::vector<ThreadDescriptor> threads;
+    std::vector<std::thread> threads;
     start_threads(server_socket, threads, NUMBER_OF_THREADS);
     join_threads(threads);
 
