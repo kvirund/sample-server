@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(server)
+project(servers)
 
-add_executable(server main.cpp)
+add_executable(multi-accept multi-accept.cpp)
+add_executable(queue queue.cpp)
