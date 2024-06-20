@@ -120,8 +120,6 @@ public:
                                                                                                     parameters)) {}
 };
 
-void serve(const int server_socket, queue_t &queue);
-
 void handle_connection(const ThreadParameters &parameters, const int client) {
     char buffer[READ_BUFFER_SIZE];
     bool done = false;
@@ -205,20 +203,6 @@ void start_threads(queue_t &queue, std::vector<ThreadDescriptor> &threads, std::
     }
 }
 
-int main([[maybe_unused]] int argc, [[maybe_unused]] char *args[]) {
-    std::cout << "The server has started..." << std::endl;
-
-    const int server_socket = create_server();
-
-    queue_t queue;
-    std::vector<ThreadDescriptor> threads;
-    start_threads(queue, threads, NUMBER_OF_THREADS);
-    serve(server_socket, queue);
-    join_threads(threads);
-
-    return 0;
-}
-
 void serve(const int server_socket, queue_t &queue) {
     struct sockaddr_in client_address{0};
     socklen_t address_length = 0;
@@ -232,4 +216,18 @@ void serve(const int server_socket, queue_t &queue) {
 
         queue.push(client);
     }
+}
+
+int main([[maybe_unused]] int argc, [[maybe_unused]] char *args[]) {
+    std::cout << "The server has started..." << std::endl;
+
+    const int server_socket = create_server();
+
+    queue_t queue;
+    std::vector<ThreadDescriptor> threads;
+    start_threads(queue, threads, NUMBER_OF_THREADS);
+    serve(server_socket, queue);
+    join_threads(threads);
+
+    return 0;
 }
